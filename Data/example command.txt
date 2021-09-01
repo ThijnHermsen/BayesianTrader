@@ -1,0 +1,1 @@
+python C:\Users\s154857\Documents\Bayesian_trader\Data\binance-public-data\python\download-kline.py -s ETHUSDT ETHBUSD -i 1m -startDate 2015-01-01 -endDate 2021-10-02 -folder C:\Users\s154857\Documents\Bayesian_trader\Data\raw
