@@ -41,23 +41,6 @@ using BenchmarkTools
 lar_model(::Type{ Multivariate }, order, c, stype) = lar_model_multivariate(order, c, stype, options = (limit_stack_depth = 50, ))
 lar_model(::Type{ Univariate }, order, c, stype)   = lar_model_univariate(order, c, stype, options = (limit_stack_depth = 50, ))
 
-mutable struct BookKeeper
-    mx_min :: Vector{Float64}
-    vx_min :: Matrix{Float64}
-    mθ :: Vector{Float64}
-    vθ :: Matrix{Float64}
-    γa :: Float64
-    γb :: Float64
-end
-
-function update_BookKeeper!(bk::BookKeeper,mx_min,vx_min,mθ,vθ,γa,γb)
-    bk.mx_min = mx_min
-    bk.vx_min = vx_min
-    bk.mθ = mθ
-    bk.vθ = vθ
-    bk.γa = γa
-    bk.γb = γb
-end
 
 # setup inference
 function start_inference(data,mx_min,vx_min,mθ,vθ,γa,γb, order, niter, artype=Multivariate, stype=ARsafe())
@@ -85,8 +68,8 @@ function start_inference(data,mx_min,vx_min,mθ,vθ,γa,γb, order, niter, artyp
     model, (x_t, mx_t_min, vx_t_min, x_t_min, y_t, θ, m_θ,v_θ,γ,γ_a,γ_b,ar_node) = lar_model(artype, order, c, stype)
     
     x_t_current = MvNormalMeanCovariance(zeros(order),diageye(order))
-    θ_current = MvNormalMeanCovariance(zeros(order),diageye(order))
-    γ_current = vague(Gamma)
+    θ_current = MvNormalMeanCovariance(mθ, vθ)  # use posteriors of previous evaluation
+    γ_current = GammaShapeRate(γa, γb)  # use previous
     
     x_t_stream = keep(Marginal)
     θ_stream = keep(Marginal)
@@ -100,26 +83,17 @@ function start_inference(data,mx_min,vx_min,mθ,vθ,γa,γb, order, niter, artyp
     setmarginal!(γ, γ_current)
     setmarginal!(θ, θ_current)
     setmarginal!(ar_node, :y_x, MvNormalMeanPrecision(zeros(2*order), Matrix{Float64}(I, 2*order, 2*order)))
-   
-    
-    update!(mx_t_min, mx_min)
-    update!(vx_t_min, vx_min)
-    update!(γ_a, γa)
-    update!(γ_b, γb)
-    update!(m_θ, mθ)
-    update!(v_θ, vθ)
-    
+
+    # update with the variable values, not with the initial distribution values
     for _ in 1:niter
         update!(y_t, data)
-        update!(mx_t_min, mean(x_t_current))
-        update!(vx_t_min, cov(x_t_current))
-        update!(γ_a, shape(γ_current))
-        update!(γ_b, rate(γ_current))
-        update!(m_θ, mean(θ_current))
-        update!(v_θ, cov(θ_current))
+        update!(mx_t_min, mx_min)
+        update!(vx_t_min, vx_min)
+        update!(γ_a, γa)
+        update!(γ_b, γb)
+        update!(m_θ, mθ)
+        update!(v_θ, vθ)
     end
-
-#     x_t_stream ,θ_stream ,γ_stream
 
 return mean(x_t_stream[end]), cov(x_t_stream[end]), mean(θ_stream[end]), cov(θ_stream[end]), shape(γ_stream[end]), rate(γ_stream[end])
 end

@@ -63,9 +63,9 @@ class SmaCross(Strategy):
         temp = 10
 
         # np.append(mx_mins, self.mx_min, axis=0)
-        mx_mins.append(self.mx_min)
-        mthetas.append(self.mtheta)
-        gamma_as.append(self.gamma_a)
+        # mx_mins.append(self.mx_min)
+        # mthetas.append(self.mtheta)
+        # gamma_as.append(self.gamma_a)
 
         self.mx_min, self.vx_min, self.mtheta, self.vtheta, self.gamma_a, self.gamma_b = Main.start_inference(self.data.Close[-1],
                                                                                                               self.mx_min,
@@ -76,7 +76,7 @@ class SmaCross(Strategy):
                                                                                                               self.gamma_b,
                                                                                                               self.ar_order,
                                                                                                               20)
-        print(self.mx_min)
+        # print(self.mx_min)
 
 def plot_priors():
     # mx_mins
@@ -113,7 +113,7 @@ if __name__ == "__main__":
     df = pd.read_csv(r"./../../Data\processed\data\spot\klines\ETHUSDT\1m\2021-01-01_2021-09-01.csv", usecols=[0, 1, 2, 3, 4, 5])  # names=["Open time", "Open", "High", "Low", "Close", "Volume"],
     df["Open time"] = pd.to_datetime(df["Open time"], unit='ms')
     df = df.set_index(["Open time"])
-    df = df.head(1000)
+    # df = df.head(10000)
     close_prices = df["Close"].to_numpy()
     close_prices /= close_prices[0]
     # _, _, ar_data, _ = Main.start_inference(close_prices, 1, 2, 30)
@@ -135,11 +135,11 @@ if __name__ == "__main__":
     #                      max_tries=1,
     #                      constraint=lambda p: p.n1 < p.n2)
     output = bt.run()
-    mx_mins = np.array(mx_mins)
-    mthetas = np.array(mthetas)
-    gamma_as = np.array(gamma_as)
-
-    plot_priors()
+    # mx_mins = np.array(mx_mins)
+    # mthetas = np.array(mthetas)
+    # gamma_as = np.array(gamma_as)
+    #
+    # plot_priors()
     # print(output)
     # bt.plot()
     # # print(ar_data)
