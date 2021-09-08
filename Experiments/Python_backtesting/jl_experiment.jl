@@ -7,171 +7,90 @@ using Distributions
 using LinearAlgebra
 import ProgressMeter
 
-# function test_fun(s::Any)
-#     return 10
-# end
-#
-# function test_fun2(s::String)
-#     return 20
-# end
-#
-# function test_fun3(a, b)
-#     return min(a, b)
-# end
-#
-# function test_fun4(a, b)
-#     temp = a*b
-#     return temp
-# end
-
-# The following coefficients correspond to stable poles
-coefs_ar_1 = [-0.27002517200218096]
-coefs_ar_2 = [0.4511170798064709, -0.05740081602446657]
-coefs_ar_5 = [0.10699399235785655, -0.5237303489793305, 0.3068897071844715, -0.17232255282458891, 0.13323964347539288];
 
 
-function generateAR(num::Int, coefs::Vector{Float64}; variance=1.0)
-    order = length(coefs)
-    inits = randn(order)
-    data = Vector{Vector{Float64}}(undef, num+3*order)
-    data[1] = inits
-    for i in 2:num+3*order
-        data[i] = insert!(data[i-1][1:end-1], 1, rand(Distributions.Normal(coefs'data[i-1], sqrt(variance[])), 1)[1])
-    end
-    data = data[1+3*order:end]
-    return data
-end
-
-
-@model function lar_model_multivariate(n, order, c, stype)
-    x = randomvar(n)
-    y = datavar(Float64, n)
-
-    γ  ~ GammaShapeRate(1.0, 1.0) where { q = MeanField() }
-    θ  ~ MvNormalMeanPrecision(zeros(order), Matrix{Float64}(I, order, order)) where { q = MeanField() }
-    x0 ~ MvNormalMeanPrecision(zeros(order), Matrix{Float64}(I, order, order)) where { q = MeanField() }
-
-    ct  = constvar(c)
-    γ_y = constvar(1.0)
-
-    x_prev = x0
-
-    meta = ARMeta(Multivariate, order, stype)
-
-    for i in 1:n
-        x[i] ~ AR(x_prev, θ, γ) where { q = q(y, x)q(γ)q(θ), meta = meta }
-        y[i] ~ NormalMeanPrecision(dot(ct, x[i]), γ_y) where { q = MeanField() }
-        x_prev = x[i]
-    end
-
-    return x, y, θ, γ
-end
-
-
-@model function lar_model_univariate(n, order, c, stype)
-    x = randomvar(n)
-    y = datavar(Float64, n)
+@model function lar_model_univariate(order, c, stype)
+    mx_prev = datavar(Float64)
+    vx_prev = datavar(Float64)
+    y = datavar(Float64)
 
     γ  ~ GammaShapeRate(1.0, 1.0) where { q = MeanField() }
     θ  ~ NormalMeanPrecision(0.0, 1.0) where { q = MeanField() }
-    x0 ~ NormalMeanPrecision(0.0, 1.0) where { q = MeanField() }
+    x_prev ~ NormalMeanPrecision(mx_prev, vx_prev) where { q = MeanField() }
 
     γ_y = constvar(1.0)
 
-    x_prev = x0
-
     meta = ARMeta(Univariate, order, stype)
 
-    for i in 1:n
-        x[i] ~ AR(x_prev, θ, γ) where { q = q(y, x)q(γ)q(θ), meta = meta }
-        y[i] ~ NormalMeanPrecision(x[i], γ_y) where { q = MeanField() }
-        x_prev = x[i]
-    end
+    x ~ AR(x_prev, θ, γ) where { q = q(y, x_prev)q(γ)q(θ), meta = meta }
+    y ~ NormalMeanPrecision(x, γ_y) where { q = MeanField() }
 
-    return x, y, θ, γ
+    return x, mx_prev, vx_prev, x_prev, y, θ, γ
 end
+
 
 using BenchmarkTools
 
-lar_model(::Type{ Multivariate }, n, order, c, stype) = lar_model_multivariate(n, order, c, stype, options = (limit_stack_depth = 50, ))
-lar_model(::Type{ Univariate }, n, order, c, stype)   = lar_model_univariate(n, order, c, stype, options = (limit_stack_depth = 50, ))
+lar_model(::Type{ Multivariate }, order, c, stype) = lar_model_multivariate(order, c, stype, options = (limit_stack_depth = 50, ))
+lar_model(::Type{ Univariate }, order, c, stype)   = lar_model_univariate(order, c, stype, options = (limit_stack_depth = 50, ))
 
-function init_marginals(::Type{ Multivariate }, order, γ, θ)
-    setmarginal!(γ, GammaShapeRate(1.0, 1.0))
-    setmarginal!(θ, MvNormalMeanPrecision(zeros(order), Matrix{Float64}(I, order, order)))
-end
 
-function init_marginals(::Type{ Univariate }, order, γ, θ)
-    setmarginal!(γ, GammaShapeRate(1.0, 1.0))
-    setmarginal!(θ, NormalMeanPrecision(0.0, 1.0))
-end
-
-function inference(data, order, niter, artype=Multivariate, stype=ARsafe())
-    n = length(data)
+# setup inference
+function start_inference(data, order, niter, artype=Univariate, stype=ARsafe())
+#     n = length(data)
 
     c = ReactiveMP.ar_unit(artype, order)
 
-    model, (x, y, θ, γ) = lar_model(artype, n, order, c, stype)
 
-    γ_buffer = nothing
-    θ_buffer = nothing
-    x_buffer = Vector{Marginal}(undef, n)
+    x_t_min_prior = NormalMeanVariance(0.0, 1e7)
+    γ_prior       = GammaShapeRate(0.001, 0.001)
+    θ_prior       = MvNormalMeanPrecision(zeros(order), Matrix{Float64}(I, order, order))
 
-    fe = Vector{Float64}()
+    model, (x_t, mx_t_min, vx_t_min, x_t_min, y_t, θ, γ) = lar_model(artype, order, c, stype)
 
-    γsub = subscribe!(getmarginal(γ), (mγ) -> γ_buffer = mγ)
-    θsub = subscribe!(getmarginal(θ), (mθ) -> θ_buffer = mθ)
-    xsub = subscribe!(getmarginals(x), (mx) -> copyto!(x_buffer, mx))
-    fesub = subscribe!(score(Float64, BetheFreeEnergy(), model), (f) -> push!(fe, f))
+#     fe = Vector{Float64}()
+    
+    x_t_stream = Subject(Marginal)
+    θ_stream = Subject(Marginal)
+    γ_stream = Subject(Marginal)
+    
+    x_t_subscribtion = subscribe!(getmarginal(x_t, IncludeAll()), (x_t_posterior) -> next!(x_t_stream, x_t_posterior)
+    )
 
-    init_marginals(artype, order, γ, θ)
+    γ_subscription = subscribe!(getmarginal(γ, IncludeAll()), (γ_posterior) -> next!(γ_stream, γ_posterior)
+    )
+    
+    θ_subscription = subscribe!(getmarginal(θ, IncludeAll()), (θ_posterior) -> next!(θ_stream, θ_posterior)
+    )
 
-    ProgressMeter.@showprogress for i in 1:niter
-        update!(y, data)
+    setmarginal!(x_t, x_t_min_prior)
+    setmarginal!(γ, γ_prior)
+    setmarginal!(θ, θ_prior)
+#     γsub = subscribe!(getmarginal(γ), (mγ) -> γ_buffer = mγ)
+#     θsub = subscribe!(getmarginal(θ), (mθ) -> θ_buffer = mθ)
+#     xsub = subscribe!(getmarginals(x), (mx) -> copyto!(x_buffer, mx))
+#     fesub = subscribe!(score(Float64, BetheFreeEnergy(), model), (f) -> push!(fe, f))
+
+#     init_marginals(artype, order, γ, θ)
+
+#     data_subscription = subscribe!(data, (d) -> update!(y_t, d))
+    update!(y_t,data)
+    for _ in 1:niter
+        update!(mx_t_min, mean.(x_t_stream))
+        update!(vx_t_min, var.(x_t_stream))
+        update!(γ_shape, shape(γ_stream))
+        update!(γ_rate, rate(γ_stream))
+        update!(θ_shape, shape(θ_stream))
+        update!(θ_rate, rate(θ_stream))
     end
 
-    unsubscribe!(γsub)
-    unsubscribe!(θsub)
-    unsubscribe!(xsub)
-    unsubscribe!(fesub)
-
-    return γ_buffer, θ_buffer, x_buffer, fe
+#     return x_t_stream, γ_stream, () -> begin
+#         unsubscribe!(x_t_subscribtion)
+#         unsubscribe!(γ_subscription)
+#         unsubscribe!(data_subscription)
+#     end
 end
 
+function nextprice!(new_obs)
 
-# using Random
-# Random.seed!(42)
-# n = 10000
-#
-# coefs = coefs_ar_2 # coefs_ar_1, coefs_ar_2, coefs_ar_5
-# gen_ar_order = length(coefs)
-# data = generateAR(n, coefs)
-# hidden_states =  first.(data)
-# observations = hidden_states .+ randn(length(hidden_states));
-# print()
-#
-# # Univariate AR
-# ar_order = 1
-# γ, θ, xs, fe = inference(observations, ar_order, 30, Univariate, ARsafe());
-#
-# #
-# # Multivariate AR
-# ar_order = gen_ar_order
-# γ, θ, xs, fe = inference(observations, ar_order, 30, Multivariate, ARsafe());
-#
-# # Extract inferred parameters
-# mx, vx = mean.(xs), cov.(xs)
-# mx = first.(mx)
-# vx = first.(vx)
-# mθ = mean(θ)
-# vθ = cov(θ)
-# mγ = mean(γ);
-#
-# using Plots
-# p1 = plot(hidden_states, label="hidden state")
-# p1 = scatter!(p1, observations, label="observations")
-# p1 = plot!(p1, mx, ribbon = sqrt.(vx), label="inferred", legend=:bottomright)
-#
-# p2 = plot(fe)
-#
-# plot(p1, p2, size = (1400, 400))
+end
