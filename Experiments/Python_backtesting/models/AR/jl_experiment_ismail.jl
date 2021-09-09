@@ -8,6 +8,7 @@ using LinearAlgebra
 import ProgressMeter
 using PyCall
 using HDF5
+using BenchmarkTools
 
 
 @model function lar_model_multivariate(order, c, stype)
@@ -29,14 +30,13 @@ using HDF5
 
     meta = ARMeta(Multivariate, order, stype)
 
-    ar_node, x ~ AR(x_prev, θ, γ) where { q = q(y, x_prev)q(γ)q(θ), meta = meta }
-    y ~ NormalMeanPrecision(dot(ct, x), γ_y) where { q = MeanField() }
+    ar_node, x_out ~ AR(x_prev, θ, γ) where { q = q(y, x)q(γ)q(θ), meta = meta }
+    y ~ NormalMeanPrecision(dot(ct, x_out), γ_y) where { q = MeanField() }
 
-    return x, mx_prev, vx_prev, x_prev, y, θ,m_θ,v_θ, γ, γ_a,γ_b,ar_node
+    return x_out, mx_prev, vx_prev, x_prev, y, θ,m_θ,v_θ, γ, γ_a,γ_b,ar_node
 end
 
 
-using BenchmarkTools
 
 lar_model(::Type{ Multivariate }, order, c, stype) = lar_model_multivariate(order, c, stype, options = (limit_stack_depth = 50, ))
 lar_model(::Type{ Univariate }, order, c, stype)   = lar_model_univariate(order, c, stype, options = (limit_stack_depth = 50, ))
@@ -44,24 +44,6 @@ lar_model(::Type{ Univariate }, order, c, stype)   = lar_model_univariate(order,
 
 # setup inference
 function start_inference(data,mx_min,vx_min,mθ,vθ,γa,γb, order, niter, artype=Multivariate, stype=ARsafe())
-
-
-#     mx_min = BookKeeper.mx_min
-#     vx_min = BookKeeper.vx_min
-#     mθ = BookKeeper.mθ
-#     vθ = BookKeeper.vθ
-#     γa = BookKeeper.γa
-#     γb = BookKeeper.γb
-#     println(mx_min)
-#     println(PyArray(mx_min))
-#     myfile = h5open("./vars/ar_order.hdf5", "r")
-#     mx_min = read(myfile, "mx_min")
-#     vx_min = read(myfile, "vx_min")
-#     mθ = read(myfile, "mtheta")
-#     vθ = read(myfile, "vtheta")
-#     γa = read(myfile, "gamma_a")
-#     γb = read(myfile, "gamma_b")
-#     close(myfile)
 
     c = ReactiveMP.ar_unit(artype, order)
 
@@ -98,4 +80,3 @@ function start_inference(data,mx_min,vx_min,mθ,vθ,γa,γb, order, niter, artyp
 return mean(x_t_stream[end]), cov(x_t_stream[end]), mean(θ_stream[end]), cov(θ_stream[end]), shape(γ_stream[end]), rate(γ_stream[end])
 end
 
-# xs,θs, γs = start_inference(2.0,zeros(4), diageye(4), zeros(4),diageye(4),0.1,0.1,4,20);

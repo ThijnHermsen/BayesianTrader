@@ -98,6 +98,7 @@ def plot_priors():
 if __name__ == "__main__":
     df = pd.read_csv(r"./../../Data\processed\data\spot\klines\ETHUSDT\15m\2021-01-01_2021-08-31.csv", usecols=[0, 1, 2, 3, 4, 5])  # names=["Open time", "Open", "High", "Low", "Close", "Volume"],
     # df = pd.read_csv(r"./../../Data\processed\data\spot\klines\ETHUSDT\1m\2021-01-01_2021-09-01.csv", usecols=[0, 1, 2, 3, 4, 5])  # names=["Open time", "Open", "High", "Low", "Close", "Volume"],
+
     df["Open time"] = pd.to_datetime(df["Open time"], unit='ms')
     df = df.set_index(["Open time"])
     # df = df.head(1000)
@@ -114,10 +115,8 @@ if __name__ == "__main__":
                   commission=.002,
                   exclusive_orders=True)
 
-    output = bt.optimize(#n1=[200, 300],
-                         #n2=[5000, 6000],
-                         AR_order=[4, 10, 50],
-                         threshold=[0.1, 0.1],
+    output = bt.optimize(AR_order=[4, 10, 50],
+                         threshold=[0.01, 0.1],
                          method='skopt',
                          maximize='SQN')
     # output = bt.run()
@@ -128,7 +127,7 @@ if __name__ == "__main__":
     # plot_priors()
 
     # print(output)
-    bt.plot(filename=f"./out/AR_result_{datetime.now().strftime('%m-%d|%H:%M')}.html")
+    bt.plot(filename=f"./out/AR_result_{datetime.now().strftime('%m-%d-%H-%M')}.html")
     # # print(ar_data)
     # try: pd.to_pickle(output, './output.pkl')
     # except: pass
