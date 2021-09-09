@@ -1,4 +1,5 @@
 /.idea/
 /Data/processed/
 /Data/raw/
-/Experiments/Python_backtesting/SmaCross.html
+/Experiments/Python_backtesting/out/SmaCross.html
+/Experiments/Python_backtesting/out/

@@ -16,7 +16,7 @@ def unpack_zips(l_path, d_path):
         with zipfile.ZipFile(zip_file) as zf:
             contain_list = zf.namelist()
             for name in contain_list:
-                file_date = name[11:-4]
+                file_date = name[len(currency_data)+len(int_data)+2:-4]
                 if len(file_date) == 7 and start_date <= datetime.strptime(file_date, '%Y-%m') <= end_date or \
                     len(file_date) == 10 and start_date <= datetime.strptime(file_date, '%Y-%m-%d') <= end_date:
                     with open(f"{d_path}/{name[:-4].replace('raw', 'processed')}.csv", "wb") as dumpfile:
@@ -43,6 +43,7 @@ def concatenate(path):
 
     combined_csv = pd.concat(csv_list)
     # export to csv
+    combined_csv = combined_csv.sort_values(by=['Open time'])
     combined_csv.to_csv(f"{Path(path).parent.absolute()}//{datetime.strftime(start_date, '%Y-%m-%d')}_{datetime.strftime(end_date, '%Y-%m-%d')}.csv", index=False, encoding='utf-8-sig')
 
 
@@ -51,9 +52,9 @@ if __name__ == '__main__':
     spot_futures = 'spot'
     type_data = 'klines'
     currency_data = 'ETHUSDT'
-    int_data = '1m'
+    int_data = '15m'
     start_date = datetime(year=2021, month=1, day=1)
-    end_date = datetime(year=2021, month=9, day=1)
+    end_date = datetime(year=2021, month=8, day=31)
 
     # unpack zips if necessary
     for period_data in ['monthly', 'daily']:
