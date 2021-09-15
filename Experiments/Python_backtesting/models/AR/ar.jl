@@ -10,7 +10,7 @@ using HDF5
 using BenchmarkTools
 
 
-@model function lar_model_multivariate(order, c, stype)
+@model function lar_model_multivariate(order, c, stype, prec=1.0)
     mx_prev = datavar(Vector{Float64})
     vx_prev = datavar(Matrix{Float64})
     γ_a = datavar(Float64)
@@ -24,7 +24,7 @@ using BenchmarkTools
 
     γ  ~ GammaShapeRate(γ_a, γ_b) where { q = MeanField() }
 
-    γ_y = constvar(1.0)
+    γ_y = constvar(prec)
     ct  = constvar(c)
 
     meta = ARMeta(Multivariate, order, stype)
@@ -37,20 +37,20 @@ end
 
 
 
-lar_model(::Type{ Multivariate }, order, c, stype) = lar_model_multivariate(order, c, stype, options = (limit_stack_depth = 50, ))
-lar_model(::Type{ Univariate }, order, c, stype)   = lar_model_univariate(order, c, stype, options = (limit_stack_depth = 50, ))
+lar_model(::Type{ Multivariate }, order, c, stype, prec) = lar_model_multivariate(order, c, stype, prec, options = (limit_stack_depth = 50, ))
+lar_model(::Type{ Univariate }, order, c, stype, prec)   = lar_model_univariate(order, c, stype, prec, options = (limit_stack_depth = 50, ))
 
 
 # setup inference
-function inference(data,mx_min,vx_min,mθ,vθ,γa,γb, order, niter, artype=Multivariate, stype=ARsafe())
+function inference(data,mx_min,vx_min,mθ,vθ,γa,γb, prec_obs, order, niter, artype=Multivariate, stype=ARsafe())
 
     c = ReactiveMP.ar_unit(artype, order)
 
-    model, (x_t, mx_t_min, vx_t_min, x_t_min, y_t, θ, m_θ,v_θ,γ,γ_a,γ_b,ar_node) = lar_model(artype, order, c, stype)
+    model, (x_t, mx_t_min, vx_t_min, x_t_min, y_t, θ, m_θ,v_θ,γ,γ_a,γ_b,ar_node) = lar_model(artype, order, c, stype, prec_obs)
 
-    x_t_current = MvNormalMeanCovariance(zeros(order),diageye(order))
-    θ_current = MvNormalMeanCovariance(mθ, vθ)  # use posteriors of previous evaluation
-    γ_current = GammaShapeRate(γa, γb)  # use previous
+#     x_t_current = MvNormalMeanCovariance(zeros(order),diageye(order))
+#     θ_current = MvNormalMeanCovariance(mθ, vθ)  # use posteriors of previous evaluation
+#     γ_current = GammaShapeRate(γa, γb)  # use previous
 
     x_t_stream = keep(Marginal)
     θ_stream = keep(Marginal)
@@ -59,10 +59,11 @@ function inference(data,mx_min,vx_min,mθ,vθ,γa,γb, order, niter, artype=Mult
     x_t_subscribtion = subscribe!(getmarginal(x_t), (x_t_posterior) -> next!(x_t_stream, x_t_posterior))
     γ_subscription = subscribe!(getmarginal(γ), (γ_posterior) -> next!(γ_stream, γ_posterior))
     θ_subscription = subscribe!(getmarginal(θ), (θ_posterior) -> next!(θ_stream, θ_posterior))
+    # getmarginal(ar_node, :y_x)
 
-    setmarginal!(x_t, x_t_current)
-    setmarginal!(γ, γ_current)
-    setmarginal!(θ, θ_current)
+    setmarginal!(x_t, vague(MvNormalMeanCovariance, order))
+    setmarginal!(γ, vague(GammaShapeRate))
+    setmarginal!(θ, vague(MvNormalMeanCovariance, order))
     setmarginal!(ar_node, :y_x, MvNormalMeanPrecision(zeros(2*order), Matrix{Float64}(I, 2*order, 2*order)))
 
     # update with the variable values, not with the initial distribution values
